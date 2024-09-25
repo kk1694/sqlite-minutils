@@ -9,6 +9,7 @@ import contextlib, datetime, decimal, inspect, itertools, json, os, pathlib, re,
 from typing import ( cast, Any, Callable, Dict, Generator, Iterable, Union, Optional, List, Tuple,)
 from functools import cache
 import uuid
+import libsql_experimental as libsql
 
 try: from sqlite_dump import iterdump
 except ImportError: iterdump = None
@@ -226,6 +227,8 @@ class Database:
         self,
         filename_or_conn: Optional[Union[str, pathlib.Path, sqlite3.Connection]] = None,
         memory: bool = False,
+        use_libsql: bool = False,
+        auth_token: Optional[str] = None,
         memory_name: Optional[str] = None,
         recreate: bool = False,
         recursive_triggers: bool = True,
@@ -254,15 +257,18 @@ class Database:
                     # https://github.com/simonw/sqlite-utils/issues/503
                     self.conn = sqlite3.connect(":memory:")
                     raise
-            self.conn = sqlite3.connect(str(filename_or_conn), check_same_thread=False)
+            if use_libsql:
+                self.conn = libsql.connect(str(filename_or_conn), auth_token=auth_token)
+            else:
+                self.conn = sqlite3.connect(str(filename_or_conn), check_same_thread=False)
         else:
             assert not recreate, "recreate cannot be used with connections, only paths"
             self.conn = filename_or_conn
-        if not hasattr(self.conn, '__enter__'):
+        if not hasattr(self.conn, '__enter__') and not use_libsql:
             self.conn.__enter__ = __conn_enter__
             self.conn.__exit__ = __conn_exit__
         self._tracer = tracer
-        if recursive_triggers:
+        if recursive_triggers and not use_libsql:
             self.execute("PRAGMA recursive_triggers=on;")
         self._registered_functions: set = set()
         self.use_counts_table = use_counts_table
